@@ -1,31 +1,72 @@
-from class_static_param import class_static_param  # 固定參數設定檔
 import requests
 import os
 import json
+import pygsheets
 from urllib.parse import unquote
 
 
-class Entrance(class_static_param):
-    def __int__(self):
-        pass
+class Entrance:
+    def __init__(self):
+        # file
+        self.file_google_sheet_url = "file_google_sheet_url"
+        self.file_google_sheet_json = "file_td_api_config_pygsheet.json"
+
+        # url
+        self.td_auth_url = "https://auth.tdameritrade.com/auth?response_type=code&redirect_uri={}&client_id={}@AMER.OAUTHAP"
+        self.td_api_accounts = "https://api.tdameritrade.com/v1/accounts?fields=positions"
+
+        # class
+        self.gc = None
+        self.sht = None
+
+        # google sheet info
+        self.wks_td_api_page = 0  # 頁 index
+        self.consumer_key_cell = "B1"
+        self.callback_url_cell = "B2"
+        self.wks_td_code_page = 1  # 頁 index
+        self.code_cell = "B1"
+        self.decode_cell = "B2"
+        self.wks_td_token_page = 2  # 頁 index
+        self.access_token_cell = "B1"
+        self.refresh_token_cell = "B2"
+        self.scope_cell = "B3"
+        self.expires_in_cell = "B4"
+        self.refresh_token_expires_in_cell = "B5"
+        self.token_type_cell = "B6"
+        self.wks_line_token_page = 3  # 頁 index
+        self.line_token_cell = "A1"
+
+        # variable
+        self.google_sheet_url = ""
+        self.consumer_key = ""
+        self.callback_url = ""
+        self.code = ""
+        self.decode = ""
+        self.access_token = ""
+        self.refresh_token = ""
+        self.scope = ""
+        self.expires_in = ""
+        self.refresh_token_expires_in = ""
+        self.token_type = ""
+        self.line_token = ""
 
     def run(self):
-        if self.def_check_config_file() is False:
-            # notify
-            print("*** file not existed ***")
+        # check file
+        if not os.path.exists(self.file_google_sheet_url):
+            with open(self.file_google_sheet_url, "w") as file:
+                file.write("")
 
-            self.line_notify_message("TD API 請輸入相關 config！！")
+        with open(self.file_google_sheet_url, "r") as f:
+            self.google_sheet_url = f.read()
 
+        if len(self.google_sheet_url) == 0:
+            print("清輸入 file_google_sheet_url 內容！")
             quit()
 
-        # 正片開始
-        # 直接使用舊的執行
-        # get token
-        with open(self.file_3_td_token, "r") as f:
-            data_str = f.read()
-            data_json = json.loads(data_str)
+        self.fn_get_sheet_info()
 
-            auth_ = "Bearer " + data_json["access_token"]
+        # 先打 requests 確認
+        auth_ = "Bearer " + self.access_token
 
         headers = {
             "Authorization": auth_
@@ -34,8 +75,13 @@ class Entrance(class_static_param):
         req = requests.get(self.td_api_accounts, headers=headers)
 
         if req.status_code != 200:
-            self.line_notify_message("TD API token 過期！！")
+            self.fn_line_notify_message("TD API token 過期！！")
 
+            # todo 更新
+
+            print(self.fn_get_td_auth_url())
+
+            print(self.fn_decode_code())
             quit()
 
         req_json = req.json()
@@ -45,83 +91,44 @@ class Entrance(class_static_param):
         for ticker_data in positions_list:
             print(ticker_data["instrument"]["symbol"])
 
-        # 失敗重新取得
-        self.get_td_auth_url()
+        a = self.td_auth_url.format(self.callback_url, self.consumer_key)
 
-        self.decode_code()
+        self.fn_line_notify_message('test:' + a)
 
-    def def_check_config_file(self):
-        p_existed = True  # file is exist
+    def fn_get_sheet_info(self):
+        # connect google sheet
+        self.gc = pygsheets.authorize(service_file=self.file_google_sheet_json)
+        self.sht = self.gc.open_by_url(self.google_sheet_url)
 
-        """ file 1 """
-        if not os.path.isfile(self.file_1_td_config):
-            p_existed = False
+        # td api
+        wks = self.sht[self.wks_td_api_page]
+        self.consumer_key = wks.cell(self.consumer_key_cell).value
+        self.callback_url = wks.cell(self.callback_url_cell).value
 
-            json_td_config = {
-                "Consumer Key": "",
-                "Callback URL": ""
-            }
+        # code
+        wks = self.sht[self.wks_td_code_page]
+        self.code = wks.cell(self.code_cell).value
+        self.decode = wks.cell(self.decode_cell).value
 
-            with open(self.file_1_td_config, "w") as file:
-                file.write(json.dumps(json_td_config))
+        # td token
 
-        """ file 2 """
-        if not os.path.isfile(self.file_2_td_code):
-            p_existed = False
+        # line token
+        wks = self.sht[self.wks_line_token_page]
+        self.line_token = wks.cell(self.line_token_cell).value
 
-            json_td_code = {
-                "Code": ""
-            }
+    def fn_get_td_auth_url(self):
+        return self.td_auth_url.format(self.callback_url, self.consumer_key)
 
-            with open(self.file_2_td_code, "w") as file:
-                file.write(json.dumps(json_td_code))
+    def fn_decode_code(self):
+        decode_str = unquote(self.code.replace(self.callback_url + "/?code=", ""))
+        # code
+        wks = self.sht[self.wks_td_code_page]
+        wks.update_value(self.decode_cell, decode_str)
+        return decode_str
 
-        """ file 3 """
-        if not os.path.isfile(self.file_3_td_token):
-            p_existed = False
-
-            json_td_token = {
-                "access_token": "",
-                "refresh_token": "",
-                "scope": "",
-                "expires_in": None,
-                "refresh_token_expires_in": None,
-                "token_type": ""
-            }
-
-            with open(self.file_3_td_token, "w") as file:
-                file.write(json.dumps(json_td_token))
-
-        """ file 4 """
-        if not os.path.isfile(self.file_4_line_token):
-            p_existed = False
-
-            with open(self.file_4_line_token, "w") as file:
-                file.write("line token")
-
-        return p_existed
-
-    def get_td_auth_url(self):
-        with open(self.file_1_td_config, "r") as f:
-            data_str = f.read()
-            data_json = json.loads(data_str)
-
-            print(self.td_auth_url.format(data_json["Callback URL"], data_json["Consumer Key"]))
-
-    def decode_code(self):
-        with open(self.file_2_td_code, "r") as f:
-            data_str = f.read()
-            data_json = json.loads(data_str)
-
-            print(unquote(data_json["Code"].replace(self.code_replace_str, "")))
-
-    def line_notify_message(self, msg):
+    def fn_line_notify_message(self, msg):
         # 跟line申請權杖
-
-        token = ""
-
-        with open(self.file_4_line_token, "r") as f:
-            token = f.read()
+        token = self.line_token
 
         headers = {
             "Authorization": "Bearer " + token,

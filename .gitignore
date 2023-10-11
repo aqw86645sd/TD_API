@@ -1,5 +1,3 @@
 /venv/
-/file_1_td_config.json
-/file_2_td_code.json
-/file_3_td_token.json
-/file_4_line_token
+/file_google_sheet_url
+/file_td_api_config_pygsheet.json
