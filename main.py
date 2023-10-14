@@ -12,8 +12,9 @@ class Entrance:
         self.file_google_sheet_json = "file_td_api_config_pygsheet.json"
 
         # url
-        self.td_auth_url = "https://auth.tdameritrade.com/auth?response_type=code&redirect_uri={}&client_id={}@AMER.OAUTHAP"
-        self.td_api_accounts = "https://api.tdameritrade.com/v1/accounts?fields=positions"
+        self.url_td_auth = "https://auth.tdameritrade.com/auth?response_type=code&redirect_uri={}&client_id={}@AMER.OAUTHAP"
+        self.url_td_refresh_token = "https://api.tdameritrade.com/v1/oauth2/token"
+        self.url_td_accounts = "https://api.tdameritrade.com/v1/accounts?fields=positions"
 
         # class
         self.gc = None
@@ -51,7 +52,7 @@ class Entrance:
         self.line_token = ""
 
     def run(self):
-        # check file
+        # check file Google sheet config
         if not os.path.exists(self.file_google_sheet_url):
             with open(self.file_google_sheet_url, "w") as file:
                 file.write("")
@@ -63,37 +64,40 @@ class Entrance:
             print("清輸入 file_google_sheet_url 內容！")
             quit()
 
+        # get information from Google sheet
         self.fn_get_sheet_info()
 
-        # 先打 requests 確認
-        auth_ = "Bearer " + self.access_token
+        # refresh token
+        req_refresh_token = self.fn_td_refresh_token()
 
-        headers = {
-            "Authorization": auth_
-        }
-
-        req = requests.get(self.td_api_accounts, headers=headers)
-
-        if req.status_code != 200:
+        if req_refresh_token.status_code != 200:
             self.fn_line_notify_message("TD API token 過期！！")
 
             # todo 更新
+            # print(self.fn_get_td_auth_url())
+            # print(self.fn_decode_code())
 
-            print(self.fn_get_td_auth_url())
-
-            print(self.fn_decode_code())
             quit()
 
-        req_json = req.json()
+        req_refresh_token_json = req_refresh_token.json()
 
-        positions_list = req_json[0]["securitiesAccount"]["positions"]
+        self.access_token = req_refresh_token_json["access_token"]
+
+        # get account data
+        req_accounts = self.fn_td_accounts()
+
+        if req_accounts.status_code != 200:
+            self.fn_line_notify_message("TD get accounts fail ！！")
+            pass
+
+        req_accounts_json = req_accounts.json()
+
+
+        positions_list = req_accounts_json[0]["securitiesAccount"]["positions"]
 
         for ticker_data in positions_list:
             print(ticker_data["instrument"]["symbol"])
 
-        a = self.td_auth_url.format(self.callback_url, self.consumer_key)
-
-        self.fn_line_notify_message('test:' + a)
 
     def fn_get_sheet_info(self):
         # connect google sheet
@@ -116,8 +120,35 @@ class Entrance:
         wks = self.sht[self.wks_line_token_page]
         self.line_token = wks.cell(self.line_token_cell).value
 
+    def fn_td_refresh_token(self):
+
+        headers = {
+            "grant_type": "refresh_token",
+            "refresh_token": self.refresh_token,
+            "access_type": "offline",
+            "code": self.decode,
+            "client_id": self.consumer_key,
+            "redirect_uri": self.callback_url
+        }
+
+        req = requests.get(self.url_td_refresh_token, headers=headers)
+
+        return req
+
+    def fn_td_accounts(self):
+
+        auth_ = "Bearer " + self.access_token
+
+        headers = {
+            "Authorization": auth_
+        }
+
+        req = requests.get(self.url_td_accounts, headers=headers)
+
+        return req
+
     def fn_get_td_auth_url(self):
-        return self.td_auth_url.format(self.callback_url, self.consumer_key)
+        return self.url_td_auth.format(self.callback_url, self.consumer_key)
 
     def fn_decode_code(self):
         decode_str = unquote(self.code.replace(self.callback_url + "/?code=", ""))
